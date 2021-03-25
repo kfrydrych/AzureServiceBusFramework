@@ -14,4 +14,5 @@ namespace Configurations
 ```
 
 **2. Set all console applications as startup projects**
+
 **3. Run and make an order :) Enjoy!**
