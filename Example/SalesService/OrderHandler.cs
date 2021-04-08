@@ -1,6 +1,7 @@
 ﻿using Contracts;
 using ServiceBus.Distributed.Commands;
 using ServiceBus.Distributed.Events;
+using ServiceBus.Distributed.Exceptions;
 using System;
 using System.Threading;
 using System.Threading.Tasks;
@@ -18,6 +19,10 @@ namespace SalesService
 
         public async Task HandleAsync(Order command, CancellationToken cancellationToken)
         {
+
+            if (string.IsNullOrWhiteSpace(command.Item))
+                throw new BadRequestException("Ordered item must not be empty");
+
             Console.WriteLine("------------------");
             Console.WriteLine($"Order for {command.Item} received");
             Console.WriteLine($"Processing order {command.OrderId}...");

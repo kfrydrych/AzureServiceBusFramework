@@ -1,10 +1,12 @@
 ﻿using Microsoft.Azure.ServiceBus;
 using Microsoft.Extensions.Hosting;
 using Newtonsoft.Json;
+using ServiceBus.Distributed.Events;
+using ServiceBus.Distributed.Exceptions;
+using System;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
-using ServiceBus.Distributed.Events;
 
 namespace ServiceBus.Distributed.Subscriptions
 {
@@ -23,15 +25,35 @@ namespace ServiceBus.Distributed.Subscriptions
         {
             _subscriptionClient.RegisterMessageHandler(async (message, token) =>
                 {
-                    var eventString = Encoding.UTF8.GetString(message.Body);
+                    try
+                    {
 
-                    var @event = JsonConvert.DeserializeObject<TEvent>(eventString);
+                        var eventString = Encoding.UTF8.GetString(message.Body);
 
-                    await _handler.HandleAsync(@event, stoppingToken);
+                        var @event = JsonConvert.DeserializeObject<TEvent>(eventString);
 
-                    await _subscriptionClient.CompleteAsync(message.SystemProperties.LockToken);
+                        await _handler.HandleAsync(@event, token);
 
-                }, new MessageHandlerOptions(args => Task.CompletedTask)
+                        await _subscriptionClient.CompleteAsync(message.SystemProperties.LockToken);
+                    }
+                    catch (BadRequestException e)
+                    {
+                        Console.WriteLine(e);
+                        await _subscriptionClient.DeadLetterAsync(message.SystemProperties.LockToken, e.Message, e.ToString());
+                    }
+                    catch (Exception e)
+                    {
+                        Console.WriteLine(e);
+                        if (message.SystemProperties.DeliveryCount > 9)
+                            await _subscriptionClient.DeadLetterAsync(message.SystemProperties.LockToken, e.Message, e.ToString());
+                    }
+
+
+                }, new MessageHandlerOptions(args =>
+                {
+                    Console.WriteLine(args.Exception.Message);
+                    return Task.CompletedTask;
+                })
                 {
                     AutoComplete = false,
                     MaxConcurrentCalls = 1

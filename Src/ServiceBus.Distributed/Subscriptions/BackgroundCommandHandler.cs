@@ -1,11 +1,12 @@
 ﻿using Microsoft.Azure.ServiceBus;
 using Microsoft.Extensions.Hosting;
 using Newtonsoft.Json;
+using ServiceBus.Distributed.Commands;
+using ServiceBus.Distributed.Exceptions;
 using System;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
-using ServiceBus.Distributed.Commands;
 
 namespace ServiceBus.Distributed.Subscriptions
 {
@@ -24,19 +25,36 @@ namespace ServiceBus.Distributed.Subscriptions
         {
             _queueClient.RegisterMessageHandler(async (message, token) =>
             {
-                var commandString = Encoding.UTF8.GetString(message.Body);
+                try
+                {
+                    var commandString = Encoding.UTF8.GetString(message.Body);
 
-                var command = JsonConvert.DeserializeObject<TCommand>(commandString);
+                    var command = JsonConvert.DeserializeObject<TCommand>(commandString);
 
-                await _handler.HandleAsync(command, stoppingToken);
+                    await _handler.HandleAsync(command, token);
 
-                await _queueClient.CompleteAsync(message.SystemProperties.LockToken);
+                    await _queueClient.CompleteAsync(message.SystemProperties.LockToken);
+                }
+                catch (BadRequestException e)
+                {
+                    Console.WriteLine(e);
+                    await _queueClient.DeadLetterAsync(message.SystemProperties.LockToken, e.Message, e.ToString());
+                }
+                catch (Exception e)
+                {
+                    Console.WriteLine(e);
+                    if (message.SystemProperties.DeliveryCount > 9)
+                        await _queueClient.DeadLetterAsync(message.SystemProperties.LockToken, e.Message, e.ToString());
+                }
 
-            }, new MessageHandlerOptions(args => Task.CompletedTask)
+            }, new MessageHandlerOptions(args =>
+            {
+                Console.WriteLine(args.Exception.Message);
+                return Task.CompletedTask;
+            })
             {
                 AutoComplete = false,
-                MaxConcurrentCalls = 1,
-                MaxAutoRenewDuration = TimeSpan.FromMinutes(1)
+                MaxConcurrentCalls = 1
             });
 
             return Task.CompletedTask;
